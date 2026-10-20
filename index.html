@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>Level 7 — WebGPU</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; overscroll-behavior: none;
+               -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+  #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: none; touch-action: none; }
+  .hidden { display: none !important; }
+  #hud { position: fixed; inset: 0; pointer-events: none; user-select: none; color: #f1ecdf;
+         font: 15px/1.2 ui-monospace, "SF Mono", Consolas, monospace; text-shadow: 0 0 4px #000c; }
+  #hud .tl { position: absolute; left: 28px; top: 22px; letter-spacing: .08em; }
+  #rec { color: #ff3b2f; }
+  #hud .tr { position: absolute; right: 28px; top: 22px; text-align: right; opacity: .8; }
+  #fps { font-size: 11px; opacity: .55; margin-top: 4px; }
+  #hud .bl { position: absolute; left: 28px; bottom: 26px; width: 180px; }
+  .meter { margin-top: 8px; font-size: 11px; letter-spacing: .12em; transition: opacity .4s; }
+  .meter .bar { height: 4px; margin-top: 3px; background: #f1ecdf33; }
+  .meter .bar > div { height: 100%; background: #f1ecdf; }
+  #stam-bar.tired { background: #ff5a3c; }
+  #msg { position: absolute; left: 0; right: 0; top: 30%; text-align: center; font-size: 22px; letter-spacing: .3em; }
+  #dot { position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; margin: -1.5px; border-radius: 50%; background: #f1ecdf88; }
+  .corner { position: absolute; width: 26px; height: 26px; border: 2px solid #f1ecdf66; }
+  .corner.a { left: 14px; top: 12px; border-right: 0; border-bottom: 0; }
+  .corner.b { right: 14px; top: 12px; border-left: 0; border-bottom: 0; }
+  .corner.c { left: 14px; bottom: 12px; border-right: 0; border-top: 0; }
+  .corner.d { right: 14px; bottom: 12px; border-left: 0; border-top: 0; }
+
+  #overlay { position: fixed; inset: 0; display: flex; background: #000a; cursor: pointer; overflow-y: auto; -webkit-overflow-scrolling: touch;
+             color: #e9e1c8; font: 15px/1.6 ui-monospace, "SF Mono", Consolas, monospace; text-align: center; }
+  /* margin: auto centres it, yet keeps its top reachable when it is taller than the screen */
+  #overlay section { margin: auto; width: min(560px, 100%); box-sizing: border-box; padding: 24px; overflow-wrap: anywhere; }
+  #overlay h1 { margin: 0 0 4px; font: 400 64px/1 ui-monospace, "SF Mono", Consolas, monospace; letter-spacing: .25em; color: #f4e7b0; }
+  #overlay h2 { margin: 0 0 4px; font-weight: 400; font-size: 34px; letter-spacing: .2em; }
+  #overlay .sub { opacity: .7; margin-bottom: 28px; letter-spacing: .1em; }
+  #overlay .keys { display: grid; grid-template-columns: auto minmax(0, auto); gap: 2px 18px; justify-content: center; text-align: left; margin: 20px 0; opacity: .85; }
+  #overlay .keys b { color: #f4e7b0; font-weight: 400; }
+  #overlay .warn { font-size: 12px; opacity: .55; margin-top: 22px; }
+  #overlay .go { margin-top: 26px; letter-spacing: .3em; animation: blink 1.6s steps(2) infinite; }
+  [data-screen="dead"] h2 { color: #ff5a3c; }
+  #overlay .descent { margin: 2px 0 18px; letter-spacing: .35em; color: #ff8a5c; }
+  #overlay .reset { margin-top: 14px; font: inherit; font-size: 11px; letter-spacing: .2em; color: #e9e1c8; opacity: .45;
+                    background: none; border: 1px solid #e9e1c855; padding: 4px 10px; cursor: pointer; }
+  #overlay .reset:hover { opacity: .9; }
+  @keyframes blink { 50% { opacity: .25; } }
+  [data-screen="finished"] h2 { color: #f4e7b0; }
+  #overlay .fin { margin: 18px 8px 0; font: inherit; letter-spacing: .2em; color: #f4e7b0; background: #0008;
+                  border: 1px solid #f4e7b088; padding: 10px 16px; cursor: pointer; }
+  #overlay .touch-only, #hud .touch-only { display: none; }
+  body.touch #overlay .keys.touch-only { display: grid; }
+  body.touch #overlay .desk-only { display: none; }
+  .portrait-hint { display: none; color: #ff8a5c; font-size: 12px; margin-top: 14px; }
+  @media (orientation: portrait) { body.touch .portrait-hint { display: block; } }
+
+  /* touch controls */
+  #touch { position: fixed; inset: 0; touch-action: none; }
+  #stick { position: absolute; width: 112px; height: 112px; margin: -56px 0 0 -56px; border-radius: 50%;
+           border: 2px solid #f1ecdf44; background: #0003; opacity: 0; transition: opacity .15s; pointer-events: none; }
+  #stick.on { opacity: 1; }
+  #knob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: #f1ecdf55; }
+  .tbtn { position: absolute; border-radius: 50%; border: 2px solid #f1ecdf66; background: #0005; color: #f1ecdf;
+          font: 12px ui-monospace, "SF Mono", Consolas, monospace; letter-spacing: .12em; touch-action: none; }
+  .tbtn.down { background: #f1ecdf44; }
+  #btn-jump { width: 78px; height: 78px; right: calc(26px + env(safe-area-inset-right)); bottom: calc(30px + env(safe-area-inset-bottom)); }
+  #btn-torch { width: 58px; height: 58px; right: calc(118px + env(safe-area-inset-right)); bottom: calc(26px + env(safe-area-inset-bottom)); }
+  #btn-pause { width: 44px; height: 44px; right: calc(22px + env(safe-area-inset-right)); top: calc(64px + env(safe-area-inset-top)); font-size: 14px; }
+  .touch-hint { position: absolute; left: 0; right: 0; bottom: 10px; text-align: center; color: #f1ecdf77; font: 11px ui-monospace, monospace; letter-spacing: .1em; pointer-events: none; }
+
+  /* phones: keep the HUD clear of notches and the overlay inside short landscape screens */
+  @media (max-width: 900px), (max-height: 520px) {
+    #hud .tl { left: calc(18px + env(safe-area-inset-left)); top: calc(14px + env(safe-area-inset-top)); font-size: 12px; }
+    #hud .tr { right: calc(18px + env(safe-area-inset-right)); top: calc(14px + env(safe-area-inset-top)); font-size: 12px; }
+    #hud .bl { left: calc(18px + env(safe-area-inset-left)); bottom: calc(16px + env(safe-area-inset-bottom)); width: 130px; }
+    body.touch #hud .bl { bottom: auto; top: calc(48px + env(safe-area-inset-top)); }
+    #msg { font-size: 16px; }
+    #overlay { font-size: 13px; line-height: 1.45; }
+    #overlay section { padding: 14px 18px; }
+    #overlay h1 { font-size: clamp(34px, 9vw, 64px); }
+    #overlay h2 { font-size: 24px; }
+    #overlay .sub { margin-bottom: 12px; }
+    #overlay .keys { margin: 10px 0; }
+    #overlay .go { margin-top: 12px; }
+    #overlay .warn { margin-top: 10px; }
+  }
+  @media (max-height: 430px) { #overlay .warn, #overlay [data-screen="title"] .lore { display: none; } }
+  #err { position: fixed; inset: 0; display: none; padding: max(24px, env(safe-area-inset-top)) 24px; color: #f88; font: 16px/1.5 system-ui; white-space: pre-wrap; background: #000; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud" class="hidden">
+  <div class="corner a"></div><div class="corner b"></div><div class="corner c"></div><div class="corner d"></div>
+  <div class="tl"><span id="rec">● REC</span>&nbsp;&nbsp;<span id="tc">00:00:00</span></div>
+  <div class="tr">DESCENT <span class="depth">1</span><div id="fps"></div></div>
+  <div class="bl">
+    <div class="meter" id="stam">STAMINA<div class="bar"><div id="stam-bar"></div></div></div>
+    <div class="meter" id="batt">TORCH<div class="bar"><div id="batt-bar"></div></div></div>
+  </div>
+  <div id="msg"></div>
+  <div id="dot"></div>
+</div>
+<div id="touch" class="hidden">
+  <div id="stick"><div id="knob"></div></div>
+  <button id="btn-jump" class="tbtn" type="button">JUMP</button>
+  <button id="btn-torch" class="tbtn" type="button">TORCH</button>
+  <button id="btn-pause" class="tbtn" type="button">II</button>
+</div>
+<div id="overlay">
+  <section data-screen="title">
+    <h1>LEVEL&nbsp;7</h1>
+    <div class="sub">the office flooded a long time ago</div>
+    <div class="descent">DESCENT <span class="depth">1</span></div>
+    <div class="lore">A walkway of soaked carpet runs out across an endless sea.<br>Follow it to the <b style="color:#ff5a3c">EXIT</b> before night falls.</div>
+    <div class="keys desk-only">
+      <b>Mouse</b><span>look</span>
+      <b>W A S D</b><span>walk</span>
+      <b>Shift</b><span>sprint / swim harder</span>
+      <b>Space</b><span>jump / climb out</span>
+      <b>F</b><span>torch</span>
+      <b>Esc</b><span>pause</span>
+    </div>
+    <div class="keys touch-only">
+      <b>Left thumb</b><span>walk / swim; push to the edge to run</span>
+      <b>Right thumb</b><span>drag to look</span>
+      <b>JUMP</b><span>jump / climb out of the water</span>
+      <b>TORCH</b><span>torch</span>
+    </div>
+    <div>Don't stay in the water. Stay in the light.</div>
+    <div>Escape all seven descents.</div>
+    <div class="go">CLICK TO ENTER</div>
+    <div class="portrait-hint">Turn your phone sideways for the best view.</div>
+    <div class="warn">Headphones recommended. Contains flashing lights and loud, sudden sounds.</div>
+    <div class="warn">Every time you come back, it goes deeper.</div>
+    <button class="reset" type="button">START OVER FROM DESCENT 1</button>
+  </section>
+  <section data-screen="pause" class="hidden">
+    <h2>PAUSED</h2>
+    <div class="sub">the hum continues</div>
+    <div class="go">CLICK TO RESUME</div>
+  </section>
+  <section data-screen="dead" class="hidden">
+    <h2 id="dead-why">IT FOUND YOU</h2>
+    <div class="sub">tape ends at <span id="dead-time"></span></div>
+    <div class="go" id="dead-go">CLICK TO GO DEEPER</div>
+    <button class="reset" type="button">START OVER FROM DESCENT 1</button>
+  </section>
+  <section data-screen="won" class="hidden">
+    <h2>YOU GOT OUT</h2>
+    <div class="sub">escaped in <span id="won-time"></span>... for now</div>
+    <div class="go">CLICK TO GO DEEPER</div>
+    <button class="reset" type="button">START OVER FROM DESCENT 1</button>
+  </section>
+  <section data-screen="finished" class="hidden">
+    <h2>THE LAST DOOR</h2>
+    <div class="sub">descent 7 escaped in <span id="won-time-fin"></span></div>
+    <div class="lore">The door opens onto still water and a grey morning.<br>No walkway. No lamps. Nothing grinning in the dark.<br>For the first time in a long time, the hum has stopped.</div>
+    <div>
+      <button class="fin fin-restart" type="button">PLAY AGAIN FROM DESCENT 1</button>
+      <button class="fin fin-deeper" type="button">KEEP GOING DOWN</button>
+    </div>
+  </section>
+</div>
+<div id="err"></div>
+<script type="module" src="js/level7/main.js"></script>
+</body>
+</html>

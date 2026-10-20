@@ -1,0 +1,8 @@
+# screenshots written by server.mjs (/__shot)
+shots/
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

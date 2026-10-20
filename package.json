@@ -1,0 +1,11 @@
+{
+  "name": "level7-sea",
+  "version": "1.0.0",
+  "description": "Level 7: a backrooms horror level on a real-time WebGPU ocean.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}
